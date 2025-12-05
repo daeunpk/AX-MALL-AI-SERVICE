@@ -19,53 +19,55 @@ export default function ReportPage() {
 
     ws.onopen = () => {
       console.log("ReportPage WebSocket connected");
-
-      // 필요하다면 서버에 리포트 요청 메시지 전송
-      ws.send(JSON.stringify({ type: "request_report" }));
+      ws.send(JSON.stringify({ type: "strategy_request" }));
     };
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
-      // 서버가 보내는 리포트 구조
       if (data.type === "strategy_result") {
-        setReportData(data.report);
+        console.log("📩 Received strategy_result:", data);
+
+        setReportData({
+          summary: data.summary,
+          keyword: data.keyword,
+          strategy: data.strategy,
+          recommendedProducts: data.recommendedProducts,
+          recommendedCoupons: data.recommendedCoupons,
+          debug: data.debug
+        });
       }
     };
 
     ws.onclose = () => console.log("ReportPage WebSocket disconnected");
 
-    // 🔧 테스트용 더미
-    setReportData({
-      summary: "고객은 패션/잡화 카테고리에 관심이 높음으로 판단됩니다.",
-      keyword: ["가방", "수납", "10만원대", "경량"],
-      strategy: "직원에게 푸시 알림: 고객에게 가방 프로모션 소개 필요",
-      recommendedCoupons: [],
-      recommendedProducts: [],
-      debugRecentUtterances:
-        "가볍고 수납 많은... / 가격대는 10만원...",
-    });
-
     return () => ws.close();
   }, []);
 
+  // -----------------------------
+  // 로딩 화면
+  // -----------------------------
   if (!reportData) {
-    return <Wrapper><Content>리포트 로딩 중...</Content></Wrapper>;
+    return (
+      <Wrapper>
+        <Content>리포트 로딩 중...</Content>
+      </Wrapper>
+    );
   }
-
 
   return (
     <Wrapper>
       <Header>
         <BackBtn>
-            <img src={back} alt="" />
+          <img src={back} alt="" />
         </BackBtn>
         <H3>최예인님의 채팅 분석 리포트</H3>
-        <BackBtn2>
-        </BackBtn2>
+        <BackBtn2 />
       </Header>
+
       <Content>
-        {/* 키워드 */}
+
+        {/* 핵심 키워드 */}
         <Section>
           <SectionTitle>핵심 키워드</SectionTitle>
           <KeywordWrapper>
@@ -82,21 +84,31 @@ export default function ReportPage() {
         {/* 요약 */}
         <Section>
           <SectionTitle>대화 전체 요약</SectionTitle>
-          <Body>{reportData.summary || "요약 없음"}</Body>
+          <Body>{reportData.summary}</Body>
         </Section>
 
-        {/* 고객 맞춤 마케팅 전략 */}
+        {/* 마케팅 전략 */}
         <Section>
           <SectionTitle>고객 맞춤 마케팅 전략</SectionTitle>
-          <Body>{reportData.strategy || "전략 없음"}</Body>
+          {reportData.strategy?.length ? (
+            reportData.strategy.map((s: string, i: number) => (
+              <Body key={i}>{s}</Body>
+            ))
+          ) : (
+            <Body>전략 없음</Body>
+          )}
         </Section>
 
-        {/* 추천 상품 — 필요하면 카드 형태로 */}
+        {/* 추천 상품 */}
         <Section>
           <SectionTitle>추천 상품</SectionTitle>
           {reportData.recommendedProducts?.length ? (
             reportData.recommendedProducts.map((p: any, i: number) => (
-              <Body key={i}>{JSON.stringify(p)}</Body>
+              <Body key={i}>
+                {p.name} / {p.price.toLocaleString()}원  
+                <br />
+                {p.notes}
+              </Body>
             ))
           ) : (
             <Body>추천 상품 없음</Body>
@@ -108,18 +120,19 @@ export default function ReportPage() {
           <SectionTitle>추천 쿠폰</SectionTitle>
           {reportData.recommendedCoupons?.length ? (
             reportData.recommendedCoupons.map((c: any, i: number) => (
-              <Body key={i}>{JSON.stringify(c)}</Body>
+              <Body key={i}>
+                {c.title}  
+                <br />
+                ({c.valid})
+                <br />
+                {c.detail}
+              </Body>
             ))
           ) : (
             <Body>추천 쿠폰 없음</Body>
           )}
         </Section>
 
-        {/* Debug */}
-        {/* <Section>
-          <SectionTitle>최근 고객 발화 (Debug)</SectionTitle>
-          <DebugBox>{report.debugRecentUtterances}</DebugBox>
-        </Section> */}
       </Content>
     </Wrapper>
   );
@@ -175,6 +188,7 @@ const Body = styled.div`
   background-color: ${theme.colors.gray.gray6};
   padding: 12px 16px;
   border-radius: ${theme.radius.m};
+  margin-bottom: 12px;
 `;
 
 const KeywordWrapper = styled.div`

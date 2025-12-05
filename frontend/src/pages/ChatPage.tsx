@@ -63,14 +63,15 @@ export default function ChatPage() {
   ---------------------------------------------- */
   useEffect(() => {
     setMessages([
-      { type: "msg", sender: "customer", text: "안녕하세요.\n문의가 가능한 지 궁금합니다." },
-      { type: "msg", sender: "store", text: "안녕하세요. 문의 가능합니다.\n어떤 것을 도와드릴까요?" },
-      { type: "msg", sender: "customer", text: "20대 여성에게 어울리는 향수를 찾고 싶은데, 매장에 있는 지 확인하고 싶어요." },
-      { type: "msg", sender: "store", text: "네, 요새 잘나가는 15번 라인 향수가 3개 비치되어 있어요." },
-      { type: "msg", sender: "store", text: "매장으로 방문해 주시면 시향도 도와드릴게요 ^^" },
-      { type: "msg", sender: "customer", text: "네 ~ 감사합니다.\n이따 3시쯤 찾아갈게요!" },
+      { type: "msg", sender: "store", text: "안녕하세요, 고객님.\n고객님께 가장 잘 맞는 제품을 안내해드릴 수 있도록 도와드리겠습니다." },
+      // { type: "msg", sender: "store", text: "안녕하세요. 문의 가능합니다.\n어떤 것을 도와드릴까요?" },
+      // { type: "msg", sender: "customer", text: "20대 여성에게 어울리는 향수를 찾고 싶은데, 매장에 있는 지 확인하고 싶어요." },
+      // { type: "msg", sender: "store", text: "네, 요새 잘나가는 15번 라인 향수가 3개 비치되어 있어요." },
+      // { type: "msg", sender: "store", text: "매장으로 방문해 주시면 시향도 도와드릴게요 ^^" },
+      // { type: "msg", sender: "customer", text: "네 ~ 감사합니다.\n이따 3시쯤 찾아갈게요!" },
     ]);
   }, []);
+
 
   /* ----------------------------------------------
       5) 채팅 보내기

@@ -1,16 +1,43 @@
-# server.py
+# backend/server.py
+import datetime
+import sys, os, random
+from datetime import datetime, timedelta
+
+# backend 디렉토리 절대경로
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))    
+ROOT_DIR = os.path.dirname(BACKEND_DIR)
+
+sys.path.append(BACKEND_DIR)
+sys.path.append(ROOT_DIR)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import uvicorn
-from datetime import datetime, timedelta
-import random
-
-from connection_manager import ConnectionManager
+from dotenv import load_dotenv
+from ai.ai_summarizer import AISummarizer
+from ws_connection_manager import ConnectionManager
 from chat_history import ChatHistory
 
-# ------------------------------
-# 조작 데이터 생성용 샘플 데이터
-# ------------------------------
+
+# ----------------------------
+#  AI 초기화 + DEBUG LOG
+# ----------------------------
+print("⚙️ Initializing AI Summarizer...")
+
+load_dotenv(os.path.join(ROOT_DIR, "ai", ".env"))
+
+ai = AISummarizer(
+    model="gemini-2.5-flash",
+    api_key=os.getenv("GEMINI_API_KEY"),
+    vertexai=False
+)
+
+
+print("✅ AI Initialized.\n")
+
+
+# ----------------------------
+#  더미 Zone/상품 데이터
+# ----------------------------
 ZONES = [
     {"zone": "정문", "floor": 1},
     {"zone": "화장품", "floor": 1},
@@ -26,6 +53,7 @@ ITEM_TEMPLATES = [
     {"category": "코트", "brand": "브랜드C", "price": (100000, 400000)},
     {"category": "양말", "brand": "브랜드D", "price": (3000, 8000)},
 ]
+
 
 def generate_fake_movement(start_time: datetime, steps: int = 4):
     path = []
@@ -61,35 +89,9 @@ def generate_fake_purchases(start_time: datetime, count: int = 2):
     return purchases
 
 
-# -----------------------------------------
-# ✔ 임시 AI 마케팅 전략 생성기 (나중 AI로 교체)
-# -----------------------------------------
-def generate_marketing_strategy(payload: dict) -> dict:
-    recent = payload["chatMessages"]
-
-    if len(recent) > 0:
-        last_utterances = " / ".join([m["text"] for m in recent[-3:]])
-    else:
-        last_utterances = "(고객 발화 없음)"
-
-    return {
-        "summary": "고객은 패션/잡화 카테고리에 관심이 높음으로 판단됩니다.",
-        "recommendedCoupons": [
-            {"name": "가방 10% 할인 쿠폰", "validUntil": "2025-12-31"},
-            {"name": "패션 잡화 5% 적립 혜택", "validUntil": "2025-12-15"},
-        ],
-        "recommendedProducts": [
-            {"category": "가방", "zone": "가방/잡화", "floor": 2},
-            {"category": "신발", "zone": "남성 의류", "floor": 3},
-        ],
-        "nextAction": "직원에게 푸시 알림: 고객에게 가방 프로모션 소개 필요",
-        "debugRecentUtterances": last_utterances
-    }
-
-
-# -------------------------
-# FastAPI WebSocket 서버
-# -------------------------
+# ----------------------------
+#  FastAPI + WebSocket
+# ----------------------------
 app = FastAPI()
 manager = ConnectionManager()
 history = ChatHistory()
@@ -98,53 +100,158 @@ history = ChatHistory()
 @app.websocket("/ws/chat")
 async def chat_socket(websocket: WebSocket):
     await manager.connect(websocket)
+    print("🟢 WebSocket Connected:", websocket.client)
 
     try:
         while True:
             data = await websocket.receive_json()
+            print("\n📩 [RECEIVED]", data)
+
             msg_type = data.get("type")
 
-            # 1) 채팅 메시지 처리
+            # ------------------------------------------------
+            # 1) 실시간 채팅 메시지 전달
+            # ------------------------------------------------
             if msg_type == "msg":
                 text = data.get("text", "")
-                sender = data.get("sender", "customer")  # 기본 sender
+                sender = data.get("sender", "customer")
+
+                print(f"💬 Chat message from {sender}: {text}")
                 history.add_message(sender, text)
 
-                # 전체 브로드캐스트 (가게 ↔ 고객 실시간 대화)
                 await manager.broadcast({
                     "type": "msg",
                     "sender": sender,
                     "text": text
-                })
+                }, exclude=websocket)
 
+            # ------------------------------------------------
             # 2) 마케팅 전략 요청 처리
-            elif msg_type == "strategy_request":
+            # ------------------------------------------------
+            elif msg_type in ["strategy_request", "request_report"]:
+                print("📊 Strategy request received!")
                 customer_id = data.get("customerId", "unknown")
 
+                # 고객 발화만 AI로 전달
                 customer_msgs = history.get_customer_messages()
-                now = datetime.now()
+                print("🧾 Chat history for AI:", customer_msgs)
 
-                payload = {
-                    "customerId": customer_id,
-                    "chatMessages": customer_msgs,
-                    "movementPath": generate_fake_movement(now),
-                    "purchasedItems": generate_fake_purchases(now)
-                }
+                ai_messages = [
+                    {
+                        "role": "user" if m["sender"] == "customer" else "agent",
+                        "text": m["text"]
+                    }
+                    for m in customer_msgs
+                ]
 
-                strategy = generate_marketing_strategy(payload)
+                print("🧠 Sending to AI:", ai_messages)
 
-                await manager.send_to(websocket, {
+                # 🔥 AI 호출
+                ai_report = ai.summarize_conversation(ai_messages)
+                print("🤖 AI result:", ai_report)
+
+                # -------------------------------
+                #  AI가 준 키워드 구조 변환
+                # -------------------------------
+                # ai_report["keywords"] = {
+                #   "estimated_age": "...",
+                #   "interested_products": [...],
+                #   "purchase_purpose": "...",
+                #   "preferred_categories": [...],
+                #   "budget": "..."
+                # }
+
+                keywords_obj = ai_report.get("keywords", {})
+                keyword_list = []
+
+                # 키워드를 프론트에서 원하는 “문자 배열”로 변환
+                if isinstance(keywords_obj, dict):
+                    if keywords_obj.get("estimated_age"):
+                        keyword_list.append(keywords_obj["estimated_age"])
+                    if keywords_obj.get("purchase_purpose"):
+                        keyword_list.append(keywords_obj["purchase_purpose"])
+                    if keywords_obj.get("budget"):
+                        keyword_list.append(keywords_obj["budget"])
+
+                    # 리스트 타입은 그대로 확장
+                    for arr_name in ["interested_products", "preferred_categories"]:
+                        arr = keywords_obj.get(arr_name, [])
+                        if isinstance(arr, list):
+                            keyword_list.extend(arr)
+
+                print("🔍 Converted keyword list:", keyword_list)
+
+                # ---------------------------
+                #  더미 추천상품
+                # ---------------------------
+                recommended_products = [
+                    {
+                        "name": "Miss Dior Blooming Bouquet",
+                        "price": 165000,
+                        "category": "향수",
+                        "notes": "산뜻한 플로럴 계열, 20~30대 여성 인기 라인"
+                    },
+                    {
+                        "name": "J’adore Eau de Parfum",
+                        "price": 198000,
+                        "category": "향수",
+                        "notes": "럭셔리 플로럴 부케, 선물용 추천"
+                    },
+                    {
+                        "name": "Dior Addict Lip Glow",
+                        "price": 49000,
+                        "category": "메이크업",
+                        "notes": "향수와 함께 구성 가능한 베스트셀러 리빙 코랄 틴트"
+                    }
+                ]
+
+
+                # ---------------------------
+                #  더미 쿠폰
+                # ---------------------------
+                recommended_coupons = [
+                    {
+                        "title": "Dior Beauty 시향 키트 증정 쿠폰",
+                        "valid": "2025-12-31",
+                        "detail": "매장 방문 시 Miss Dior · J’adore 시향 키트 제공"
+                    },
+                    {
+                        "title": "향수 구매 고객 한정 기프트 패키지 제공",
+                        "valid": "2025-12-31",
+                        "detail": "향수 구매 시 디올 익스클루시브 패키지로 포장"
+                    }
+                ]
+
+
+                # ---------------------------
+                #  최종 전달 JSON
+                # ---------------------------
+                response = {
                     "type": "strategy_result",
                     "customerId": customer_id,
-                    "payloadUsed": payload,   # 디버깅용
-                    "strategy": strategy
-                })
+
+                    # 프론트에서 그대로 표시하는 필드
+                    "summary": ai_report.get("summary", ""),
+                    "keyword": keyword_list,   # ← 프론트 요구에 맞춰 배열로 전달
+                    "strategy": ai_report.get("marketing_strategy", []),
+
+                    # 추천 데이터
+                    "recommendedProducts": recommended_products,
+                    "recommendedCoupons": recommended_coupons,
+
+                    # 디버깅용도
+                    "debug": ai_report.get("debugRecentUtterances", "")
+                }
+
+                print("📤 Sending strategy_result → Front:", response)
+                await manager.send_to(websocket, response)
+
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-        print("클라이언트 연결 해제")
+        print("🔴 WebSocket Disconnected:", websocket.client)
 
 
 if __name__ == "__main__":
-    print("🚀 WebSocket Server on ws://localhost:8000/ws/chat")
+    print("🚀 WebSocket Server running at ws://localhost:8000/ws/chat")
     uvicorn.run(app, host="0.0.0.0", port=8000)
